@@ -1,0 +1,117 @@
+name: Discord Notifications
+
+# ─────────────────────────────────────────────────────────
+# SETUP (per repo, done once by each project owner):
+# 1. In Discord: Channel Settings → Integrations → Webhooks → New Webhook → Copy URL
+# 2. In GitHub repo: Settings → Secrets and variables → Actions → New repository secret
+#    Name:  DISCORD_WEBHOOK_URL
+#    Value: <paste the Discord webhook URL>
+# 3. Copy this file into: .github/workflows/discord-notify.yml
+# That's it — no manual GUI webhook config, no unwanted event spam.
+# ─────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    types: [opened, closed, reopened, ready_for_review]
+  push:
+    branches: [main, dev]
+  create:      # fires for new branches AND new tags — filtered below
+  delete:      # fires for deleted branches AND deleted tags — filtered below
+  fork:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    # Skip create/delete events for tags — we only care about branches
+    if: >
+      (github.event_name != 'create' && github.event_name != 'delete') ||
+      github.event.ref_type == 'branch'
+    steps:
+      - name: Build and send Discord message
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          REPO_URL: ${{ github.event.repository.html_url }}
+        run: |
+          set -e
+
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL secret is not set. Skipping notification."
+            exit 0
+          fi
+
+          TITLE=""
+          DESC=""
+          COLOR=3447003   # default blurple
+          URL="$REPO_URL"
+
+          case "$EVENT_NAME" in
+
+            pull_request)
+              PR_ACTION="${{ github.event.action }}"
+              PR_TITLE="${{ github.event.pull_request.title }}"
+              PR_NUM="${{ github.event.pull_request.number }}"
+              PR_URL="${{ github.event.pull_request.html_url }}"
+              BASE="${{ github.event.pull_request.base.ref }}"
+              HEAD="${{ github.event.pull_request.head.ref }}"
+              TITLE="Pull Request ${PR_ACTION}: #${PR_NUM}"
+              DESC="**${PR_TITLE}**\n\`${HEAD}\` → \`${BASE}\`\nby ${ACTOR}"
+              URL="$PR_URL"
+              if [ "$PR_ACTION" = "closed" ]; then COLOR=15158332; else COLOR=3066993; fi
+              ;;
+
+            fork)
+              FORK_URL="${{ github.event.forkee.html_url }}"
+              TITLE="Repository Forked"
+              DESC="${REPO} was forked by ${ACTOR}"
+              URL="$FORK_URL"
+              COLOR=10181046
+              ;;
+
+            push)
+              BRANCH="${GITHUB_REF#refs/heads/}"
+              COMMIT_COUNT="${{ github.event.commits && github.event.commits[0] && 1 || 0 }}"
+              TITLE="New Commit(s) on ${BRANCH}"
+              DESC="${ACTOR} pushed to \`${BRANCH}\` in ${REPO}"
+              URL="${{ github.event.compare }}"
+              COLOR=3066993
+              ;;
+
+            create)
+              BRANCH="${{ github.event.ref }}"
+              TITLE="New Branch Created"
+              DESC="Branch \`${BRANCH}\` created by ${ACTOR} in ${REPO}"
+              COLOR=3426654
+              ;;
+
+            delete)
+              BRANCH="${{ github.event.ref }}"
+              TITLE="Branch Deleted"
+              DESC="Branch \`${BRANCH}\` deleted by ${ACTOR} in ${REPO}"
+              COLOR=9807270
+              ;;
+
+          esac
+
+          PAYLOAD=$(jq -n \
+            --arg title "$TITLE" \
+            --arg desc "$DESC" \
+            --arg url "$URL" \
+            --argjson color "$COLOR" \
+            '{
+              embeds: [
+                {
+                  title: $title,
+                  description: $desc,
+                  url: $url,
+                  color: $color
+                }
+              ]
+            }')
+
+          curl -sf -H "Content-Type: application/json" \
+            -X POST \
+            -d "$PAYLOAD" \
+            "$DISCORD_WEBHOOK_URL"
