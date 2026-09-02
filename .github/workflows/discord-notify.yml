@@ -1,40 +1,26 @@
 name: Discord Notifications
 
-# ─────────────────────────────────────────────────────────
-# SETUP (per repo, done once by each project owner):
-# 1. In Discord: Channel Settings → Integrations → Webhooks → New Webhook → Copy URL
-# 2. In GitHub repo: Settings → Secrets and variables → Actions → New repository secret
-#    Name:  DISCORD_WEBHOOK_URL
-#    Value: <paste the Discord webhook URL>
-# 3. Copy this file into: .github/workflows/discord-notify.yml
-# That's it — no manual GUI webhook config, no unwanted event spam.
-# ─────────────────────────────────────────────────────────
-
 on:
   pull_request:
     types: [opened, closed, reopened, ready_for_review]
   push:
     branches: [main, dev]
-  create:      # fires for new branches AND new tags — filtered below
-  delete:      # fires for deleted branches AND deleted tags — filtered below
+  create: # Fires for new branches and tags (filtered below)
+  delete: # Fires for deleted branches and tags (filtered below)
   fork:
 
 jobs:
   notify:
     runs-on: ubuntu-latest
-    # Skip create/delete events for tags — we only care about branches
+    # Skip tag create/delete events — only process branch operations
     if: >
       (github.event_name != 'create' && github.event_name != 'delete') ||
       github.event.ref_type == 'branch'
+
     steps:
-      - name: Build and send Discord message
+      - name: Send Discord Notification
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          EVENT_NAME: ${{ github.event_name }}
-          REPO: ${{ github.repository }}
-          ACTOR: ${{ github.actor }}
-          REPO_URL: ${{ github.event.repository.html_url }}
-          COMMITS_JSON: ${{ toJson(github.event.commits) }}
         run: |
           set -e
 
@@ -43,9 +29,16 @@ jobs:
             exit 0
           fi
 
+          REPO="${{ github.repository }}"
           REPO_NAME="${REPO##*/}"
-          MSG1=""
-          MSG2=""
+          REPO_URL="${{ github.event.repository.html_url }}"
+          ACTOR="${{ github.actor }}"
+          EVENT_NAME="${{ github.event_name }}"
+
+          TITLE=""
+          TITLE_URL=""
+          DESCRIPTION=""
+          COLOR=3447003 # Default Blue
 
           case "$EVENT_NAME" in
 
@@ -56,60 +49,91 @@ jobs:
               BASE="${{ github.event.pull_request.base.ref }}"
               HEAD="${{ github.event.pull_request.head.ref }}"
               MERGED="${{ github.event.pull_request.merged }}"
+              TITLE_URL="$PR_URL"
 
-              if [ "$PR_ACTION" = "opened" ] || [ "$PR_ACTION" = "reopened" ]; then
-                MSG1="[New ](${PR_URL})\`PR #${PR_NUM}\`[ opened into](${PR_URL}) \`${BASE}\`  branch (click)"
-                MSG2="${ACTOR} opened a pull request from \`${HEAD}\` into \`${BASE}\` in repo: ${REPO_NAME}"
-              elif [ "$PR_ACTION" = "closed" ] && [ "$MERGED" = "true" ]; then
-                MSG1="[Pull Request ](${PR_URL})\`#${PR_NUM}\`[ merged into](${PR_URL}) \`${BASE}\`  branch (click)"
-                MSG2="${ACTOR}'s pull request was merged from \`${HEAD}\` into \`${BASE}\` in repo: ${REPO_NAME}"
-              elif [ "$PR_ACTION" = "closed" ]; then
-                MSG1="[Pull Request ](${PR_URL})\`#${PR_NUM}\`[ closed](${PR_URL}) (not merged)  (click)"
-                MSG2="Pull request from \`${HEAD}\` into \`${BASE}\` was closed without merging in repo: ${REPO_NAME}"
-              elif [ "$PR_ACTION" = "ready_for_review" ]; then
-                MSG1="[Pull Request ](${PR_URL})\`#${PR_NUM}\`[ ready for review](${PR_URL})  (click)"
-                MSG2="${ACTOR} marked the pull request into \`${BASE}\` as ready for review in repo: ${REPO_NAME}"
-              fi
-              ;;
-
-            fork)
-              FORK_URL="${{ github.event.forkee.html_url }}"
-              MSG1="[Repository forked](${FORK_URL})  (click)"
-              MSG2="${ACTOR} forked repo: ${REPO_NAME}"
+              case "$PR_ACTION" in
+                opened|reopened)
+                  TITLE="New PR #${PR_NUM} into '${BASE}'"
+                  DESCRIPTION="**${ACTOR}** opened a pull request from \`${HEAD}\` into \`${BASE}\` in **${REPO_NAME}**."
+                  COLOR=3066993 # Green
+                  ;;
+                closed)
+                  if [ "$MERGED" = "true" ]; then
+                    TITLE="PR #${PR_NUM} Merged into '${BASE}'"
+                    DESCRIPTION="**${ACTOR}**'s pull request was merged from \`${HEAD}\` into \`${BASE}\` in **${REPO_NAME}**."
+                    COLOR=10181046 # Purple
+                  else
+                    TITLE="PR #${PR_NUM} Closed (Unmerged)"
+                    DESCRIPTION="Pull request from \`${HEAD}\` into \`${BASE}\` was closed without merging in **${REPO_NAME}**."
+                    COLOR=15158332 # Red
+                  fi
+                  ;;
+                ready_for_review)
+                  TITLE="PR #${PR_NUM} Ready for Review"
+                  DESCRIPTION="**${ACTOR}** marked pull request into \`${BASE}\` as ready for review in **${REPO_NAME}**."
+                  COLOR=15844367 # Gold
+                  ;;
+              esac
               ;;
 
             push)
               BRANCH="${GITHUB_REF#refs/heads/}"
               COMPARE_URL="${{ github.event.compare }}"
-              N=$(echo "$COMMITS_JSON" | jq 'length')
-              if [ "$N" -eq 1 ]; then S=""; else S="s"; fi
-              MSG1="[New ](${COMPARE_URL})\`${N}\`[ Commit${S} on](${COMPARE_URL}) \`${BRANCH}\`  branch (click)"
-              MSG2="${ACTOR} pushed ${N} commit${S} into \`${BRANCH}\` in repo: ${REPO_NAME}"
+              COMMITS_JSON='${{ toJson(github.event.commits) }}'
+              COUNT=$(echo "$COMMITS_JSON" | jq 'length')
+              PLURAL=$([ "$COUNT" -eq 1 ] && echo "" || echo "s")
+
+              TITLE="New Commit${PLURAL} on '${BRANCH}'"
+              TITLE_URL="$COMPARE_URL"
+              DESCRIPTION="**${ACTOR}** pushed ${COUNT} commit${PLURAL} to \`${BRANCH}\` in **${REPO_NAME}**."
+              COLOR=3447003 # Blue
               ;;
 
             create)
               BRANCH="${{ github.event.ref }}"
-              BRANCH_URL="https://github.com/${REPO}/tree/${BRANCH}"
-              MSG1="[New branch created](${BRANCH_URL}) \`${BRANCH}\`  (click)"
-              MSG2="${ACTOR} created branch \`${BRANCH}\` in repo: ${REPO_NAME}"
+              TITLE="New Branch Created: '${BRANCH}'"
+              TITLE_URL="https://github.com/${REPO}/tree/${BRANCH}"
+              DESCRIPTION="**${ACTOR}** created branch \`${BRANCH}\` in **${REPO_NAME}**."
+              COLOR=3066993 # Green
               ;;
 
             delete)
               BRANCH="${{ github.event.ref }}"
-              MSG1="[Branch deleted](${REPO_URL}) \`${BRANCH}\`  (click)"
-              MSG2="${ACTOR} deleted branch \`${BRANCH}\` in repo: ${REPO_NAME}"
+              TITLE="Branch Deleted: '${BRANCH}'"
+              TITLE_URL="$REPO_URL"
+              DESCRIPTION="**${ACTOR}** deleted branch \`${BRANCH}\` in **${REPO_NAME}**."
+              COLOR=15158332 # Red
+              ;;
+
+            fork)
+              FORK_URL="${{ github.event.forkee.html_url }}"
+              TITLE="Repository Forked"
+              TITLE_URL="$FORK_URL"
+              DESCRIPTION="**${ACTOR}** forked **${REPO_NAME}**."
+              COLOR=15844367 # Gold
               ;;
 
           esac
 
-          if [ -z "$MSG1" ]; then
-            echo "No message generated for this event/action combo. Skipping."
+          if [ -z "$TITLE" ]; then
+            echo "No message configured for this event. Skipping."
             exit 0
           fi
 
-          DESCRIPTION=$(printf '%s\n%s' "$MSG1" "$MSG2")
-
-          PAYLOAD=$(jq -n --arg desc "$DESCRIPTION" '{embeds: [{description: $desc}]}')
+          # Construct clean JSON Embed payload
+          PAYLOAD=$(jq -n \
+            --arg title "$TITLE" \
+            --arg url "$TITLE_URL" \
+            --arg desc "$DESCRIPTION" \
+            --arg color "$COLOR" \
+            '{
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $desc,
+                color: ($color | tonumber)
+              }]
+            }')
 
           curl -sf -H "Content-Type: application/json" \
             -X POST \
