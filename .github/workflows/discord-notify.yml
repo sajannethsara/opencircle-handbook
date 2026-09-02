@@ -7,7 +7,7 @@ on:
     branches: [main, dev]
   create: # Fires for new branches and tags (filtered below)
   delete: # Fires for deleted branches and tags (filtered below)
-  fork:
+  fork: # test
 
 jobs:
   notify:
