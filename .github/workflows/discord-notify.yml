@@ -73,8 +73,8 @@ jobs:
             push)
               BRANCH="${GITHUB_REF#refs/heads/}"
               COMMIT_COUNT="${{ github.event.commits && github.event.commits[0] && 1 || 0 }}"
-              TITLE="New Commit(s) on ${BRANCH}"
-              DESC="${ACTOR} pushed to \`${BRANCH}\` in ${REPO}"
+              TITLE="New \`${COMMIT_COUNT}\` Commit(s) on ${BRANCH}"
+              DESC="${ACTOR} pushed to \`${BRANCH}\` in Repo: ${REPO}"
               URL="${{ github.event.compare }}"
               COLOR=3066993
               ;;
