@@ -33,6 +33,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REPO: ${{ github.repository }}
           ACTOR: ${{ github.actor }}
+          REPO_URL: ${{ github.event.repository.html_url }}
+          COMMITS_JSON: ${{ toJson(github.event.commits) }}
         run: |
           set -e
 
@@ -41,13 +43,14 @@ jobs:
             exit 0
           fi
 
-          MSG=""
+          REPO_NAME="${REPO##*/}"
+          MSG1=""
+          MSG2=""
 
           case "$EVENT_NAME" in
 
             pull_request)
               PR_ACTION="${{ github.event.action }}"
-              PR_TITLE="${{ github.event.pull_request.title }}"
               PR_NUM="${{ github.event.pull_request.number }}"
               PR_URL="${{ github.event.pull_request.html_url }}"
               BASE="${{ github.event.pull_request.base.ref }}"
@@ -55,52 +58,58 @@ jobs:
               MERGED="${{ github.event.pull_request.merged }}"
 
               if [ "$PR_ACTION" = "opened" ] || [ "$PR_ACTION" = "reopened" ]; then
-                MSG="${ACTOR} opened a pull request (#${PR_NUM}) in ${REPO}. This is a request to merge their changes from the '${HEAD}' branch into the '${BASE}' branch. The PR is titled \"${PR_TITLE}\". Someone should review it before it gets merged. Link: ${PR_URL}"
+                MSG1="[New ](${PR_URL})\`PR #${PR_NUM}\`[ opened into](${PR_URL}) \`${BASE}\`  branch (click)"
+                MSG2="${ACTOR} opened a pull request from \`${HEAD}\` into \`${BASE}\` in repo: ${REPO_NAME}"
               elif [ "$PR_ACTION" = "closed" ] && [ "$MERGED" = "true" ]; then
-                MSG="${ACTOR}'s pull request (#${PR_NUM}) titled \"${PR_TITLE}\" was merged into '${BASE}' in ${REPO}. This means the changes from '${HEAD}' are now part of the '${BASE}' branch. Link: ${PR_URL}"
+                MSG1="[Pull Request ](${PR_URL})\`#${PR_NUM}\`[ merged into](${PR_URL}) \`${BASE}\`  branch (click)"
+                MSG2="${ACTOR}'s pull request was merged from \`${HEAD}\` into \`${BASE}\` in repo: ${REPO_NAME}"
               elif [ "$PR_ACTION" = "closed" ]; then
-                MSG="Pull request #${PR_NUM} (\"${PR_TITLE}\") in ${REPO} was closed without being merged. The changes from '${HEAD}' were not added to '${BASE}'. Link: ${PR_URL}"
+                MSG1="[Pull Request ](${PR_URL})\`#${PR_NUM}\`[ closed](${PR_URL}) (not merged)  (click)"
+                MSG2="Pull request from \`${HEAD}\` into \`${BASE}\` was closed without merging in repo: ${REPO_NAME}"
               elif [ "$PR_ACTION" = "ready_for_review" ]; then
-                MSG="Pull request #${PR_NUM} (\"${PR_TITLE}\") in ${REPO} is now marked as ready for review. It was previously a draft, but ${ACTOR} has finished the work and it now needs someone to check it. Link: ${PR_URL}"
+                MSG1="[Pull Request ](${PR_URL})\`#${PR_NUM}\`[ ready for review](${PR_URL})  (click)"
+                MSG2="${ACTOR} marked the pull request into \`${BASE}\` as ready for review in repo: ${REPO_NAME}"
               fi
               ;;
 
             fork)
               FORK_URL="${{ github.event.forkee.html_url }}"
-              MSG="${ACTOR} forked ${REPO}. Forking means they made their own personal copy of the whole project, which they can freely change without affecting the original. Their copy: ${FORK_URL}"
+              MSG1="[Repository forked](${FORK_URL})  (click)"
+              MSG2="${ACTOR} forked repo: ${REPO_NAME}"
               ;;
 
             push)
               BRANCH="${GITHUB_REF#refs/heads/}"
               COMPARE_URL="${{ github.event.compare }}"
-              if [ "$BRANCH" = "main" ]; then
-                BRANCH_NOTE="the 'main' branch, which usually holds the live/production version of the code"
-              elif [ "$BRANCH" = "dev" ]; then
-                BRANCH_NOTE="the 'dev' branch, which is used for ongoing development before things are ready for 'main'"
-              else
-                BRANCH_NOTE="the '${BRANCH}' branch"
-              fi
-              MSG="${ACTOR} pushed new commit(s) to ${BRANCH_NOTE} in ${REPO}. This means the code on that branch has just changed. You can see exactly what changed here: ${COMPARE_URL}"
+              N=$(echo "$COMMITS_JSON" | jq 'length')
+              if [ "$N" -eq 1 ]; then S=""; else S="s"; fi
+              MSG1="[New ](${COMPARE_URL})\`${N}\`[ Commit${S} on](${COMPARE_URL}) \`${BRANCH}\`  branch (click)"
+              MSG2="${ACTOR} pushed ${N} commit${S} into \`${BRANCH}\` in repo: ${REPO_NAME}"
               ;;
 
             create)
               BRANCH="${{ github.event.ref }}"
-              MSG="${ACTOR} created a new branch called '${BRANCH}' in ${REPO}. A branch is a separate copy of the code used to work on a feature or fix without touching other branches like 'main' or 'dev' until it's ready."
+              BRANCH_URL="https://github.com/${REPO}/tree/${BRANCH}"
+              MSG1="[New branch created](${BRANCH_URL}) \`${BRANCH}\`  (click)"
+              MSG2="${ACTOR} created branch \`${BRANCH}\` in repo: ${REPO_NAME}"
               ;;
 
             delete)
               BRANCH="${{ github.event.ref }}"
-              MSG="${ACTOR} deleted the branch '${BRANCH}' in ${REPO}. This is usually done after the branch's changes have already been merged elsewhere and the branch is no longer needed."
+              MSG1="[Branch deleted](${REPO_URL}) \`${BRANCH}\`  (click)"
+              MSG2="${ACTOR} deleted branch \`${BRANCH}\` in repo: ${REPO_NAME}"
               ;;
 
           esac
 
-          if [ -z "$MSG" ]; then
+          if [ -z "$MSG1" ]; then
             echo "No message generated for this event/action combo. Skipping."
             exit 0
           fi
 
-          PAYLOAD=$(jq -n --arg content "$MSG" '{content: $content}')
+          DESCRIPTION=$(printf '%s\n%s' "$MSG1" "$MSG2")
+
+          PAYLOAD=$(jq -n --arg desc "$DESCRIPTION" '{embeds: [{description: $desc}]}')
 
           curl -sf -H "Content-Type: application/json" \
             -X POST \
