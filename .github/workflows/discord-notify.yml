@@ -2,12 +2,14 @@ name: Discord Notifications
 
 on:
   pull_request:
-    types: [opened, closed, reopened, ready_for_review]
+    types: [opened, closed, reopened, ready_for_review, assigned, unassigned, labeled, unlabeled, review_requested]
+  issues:
+    types: [opened, closed, reopened, assigned, unassigned, labeled, unlabeled]
   push:
     branches: [main, dev]
   create: # Fires for new branches and tags (filtered below)
   delete: # Fires for deleted branches and tags (filtered below)
-  fork: # test
+  fork:
 
 jobs:
   notify:
@@ -72,6 +74,86 @@ jobs:
                   TITLE="PR #${PR_NUM} Ready for Review"
                   DESCRIPTION="**${ACTOR}** marked pull request into \`${BASE}\` as ready for review in **${REPO_NAME}**."
                   COLOR=15844367 # Gold
+                  ;;
+                assigned)
+                  ASSIGNEE="${{ github.event.assignee.login }}"
+                  TITLE="PR #${PR_NUM} Assigned"
+                  DESCRIPTION="**${ACTOR}** assigned **${ASSIGNEE}** to pull request #${PR_NUM} in **${REPO_NAME}**."
+                  COLOR=3447003 # Blue
+                  ;;
+                unassigned)
+                  ASSIGNEE="${{ github.event.assignee.login }}"
+                  TITLE="PR #${PR_NUM} Unassigned"
+                  DESCRIPTION="**${ACTOR}** removed **${ASSIGNEE}** from pull request #${PR_NUM} in **${REPO_NAME}**."
+                  COLOR=9807270 # Grey
+                  ;;
+                labeled)
+                  LABEL="${{ github.event.label.name }}"
+                  TITLE="PR #${PR_NUM} Labeled"
+                  DESCRIPTION="**${ACTOR}** added label \`${LABEL}\` to pull request #${PR_NUM} in **${REPO_NAME}**."
+                  COLOR=15844367 # Gold
+                  ;;
+                unlabeled)
+                  LABEL="${{ github.event.label.name }}"
+                  TITLE="PR #${PR_NUM} Label Removed"
+                  DESCRIPTION="**${ACTOR}** removed label \`${LABEL}\` from pull request #${PR_NUM} in **${REPO_NAME}**."
+                  COLOR=9807270 # Grey
+                  ;;
+                review_requested)
+                  REVIEWER="${{ github.event.requested_reviewer.login }}"
+                  TITLE="Review Requested on PR #${PR_NUM}"
+                  DESCRIPTION="**${ACTOR}** requested a review from **${REVIEWER}** on pull request #${PR_NUM} in **${REPO_NAME}**."
+                  COLOR=15844367 # Gold
+                  ;;
+              esac
+              ;;
+
+            issues)
+              ISSUE_ACTION="${{ github.event.action }}"
+              ISSUE_NUM="${{ github.event.issue.number }}"
+              ISSUE_URL="${{ github.event.issue.html_url }}"
+              ISSUE_TITLE_TEXT="${{ github.event.issue.title }}"
+              TITLE_URL="$ISSUE_URL"
+
+              case "$ISSUE_ACTION" in
+                opened)
+                  TITLE="New Issue #${ISSUE_NUM}: ${ISSUE_TITLE_TEXT}"
+                  DESCRIPTION="**${ACTOR}** opened issue #${ISSUE_NUM} in **${REPO_NAME}**."
+                  COLOR=3066993 # Green
+                  ;;
+                reopened)
+                  TITLE="Issue #${ISSUE_NUM} Reopened"
+                  DESCRIPTION="**${ACTOR}** reopened issue #${ISSUE_NUM} in **${REPO_NAME}**."
+                  COLOR=15844367 # Gold
+                  ;;
+                closed)
+                  TITLE="Issue #${ISSUE_NUM} Closed"
+                  DESCRIPTION="**${ACTOR}** closed issue #${ISSUE_NUM} in **${REPO_NAME}**."
+                  COLOR=15158332 # Red
+                  ;;
+                assigned)
+                  ASSIGNEE="${{ github.event.assignee.login }}"
+                  TITLE="Issue #${ISSUE_NUM} Assigned"
+                  DESCRIPTION="**${ACTOR}** assigned **${ASSIGNEE}** to issue #${ISSUE_NUM} in **${REPO_NAME}**."
+                  COLOR=3447003 # Blue
+                  ;;
+                unassigned)
+                  ASSIGNEE="${{ github.event.assignee.login }}"
+                  TITLE="Issue #${ISSUE_NUM} Unassigned"
+                  DESCRIPTION="**${ACTOR}** removed **${ASSIGNEE}** from issue #${ISSUE_NUM} in **${REPO_NAME}**."
+                  COLOR=9807270 # Grey
+                  ;;
+                labeled)
+                  LABEL="${{ github.event.label.name }}"
+                  TITLE="Issue #${ISSUE_NUM} Labeled"
+                  DESCRIPTION="**${ACTOR}** added label \`${LABEL}\` to issue #${ISSUE_NUM} in **${REPO_NAME}**."
+                  COLOR=15844367 # Gold
+                  ;;
+                unlabeled)
+                  LABEL="${{ github.event.label.name }}"
+                  TITLE="Issue #${ISSUE_NUM} Label Removed"
+                  DESCRIPTION="**${ACTOR}** removed label \`${LABEL}\` from issue #${ISSUE_NUM} in **${REPO_NAME}**."
+                  COLOR=9807270 # Grey
                   ;;
               esac
               ;;
